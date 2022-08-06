@@ -1,0 +1,103 @@
+# YAML for deploying MariaDB
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mariadb
+---
+apiVersion: v1
+data:
+  password: bXNpbnVzMTM=
+  username: aG1laHJh
+kind: Secret
+metadata:
+  name: smbcreds
+  namespace: default
+type: Opaque
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mariadb-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: smb
+  mountOptions:
+    - dir_mode=0777
+    - file_mode=0777
+  csi:
+    driver: smb.csi.k8s.io
+    readOnly: false
+    volumeHandle: mariadb-volumeid
+    volumeAttributes:
+      source: "//192.168.0.221/MariaDb"
+    nodeStageSecretRef:
+      name: smbcreds
+      namespace: default
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mariadb-pvc
+  namespace: mariadb
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: mariadb-pv
+  storageClassName: smb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb-deployment
+  namespace: mariadb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+      - name: mariadb
+        image: linuxserver/mariadb
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - mountPath: /config
+          name: config
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          value: mariadb
+      volumes:
+      - name: config
+        persistentVolumeClaim:
+          claimName: mariadb-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mariadb
+  name: mariadb
+  namespace: mariadb
+spec:
+  ports:
+  - name: db
+    port: 3306
+    protocol: TCP
+    targetPort: 3306
+  selector:
+    app: mariadb
+  type: ClusterIP
+---
