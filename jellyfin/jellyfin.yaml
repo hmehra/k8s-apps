@@ -1,0 +1,138 @@
+# YAML for deploying Jellyfin namespace, pod and service
+
+---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jellyfin
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  selector:
+    matchLabels:
+      app: jellyfin
+  template:
+    metadata:
+      labels:
+        app: jellyfin
+    spec:
+      containers:
+      - env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: all
+        image: jellyfin/jellyfin:10.8.4
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        imagePullPolicy: IfNotPresent
+        name: jellyfin
+        ports:
+        - containerPort: 8096
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /movies
+          name: movies
+        - mountPath: /tv
+          name: tv
+        - mountPath: /videos
+          name: videos
+        - mountPath: /photos
+          name: photos
+        - mountPath: /config
+          name: config
+      restartPolicy: Always
+      volumes:
+      - name: movies
+        hostPath:
+          path: /home/hmehra/Movies
+      - name: tv
+        hostPath:
+          path: /home/hmehra/TV
+      - name: videos
+        hostPath:
+          path: /home/hmehra/Videos
+      - name: photos
+        hostPath:
+          path: /home/hmehra/Pictures
+      - name: config
+        hostPath:
+          path: /home/hmehra/config/jellyfin
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: jellyfin
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  ports:
+  - name: web
+    port: 8096
+    protocol: TCP
+    targetPort: 8096
+  selector:
+    app: jellyfin
+  type: ClusterIP
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  stripPrefix:
+    prefixes:
+      - "/jellyfin"
+    forceSlash: false
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    cert-manager.io/cluster-issuer: letsencrypt-issuer
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  rules:
+  - host: media.hmehra.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: jellyfin
+            port:
+              number: 8096
+  tls:
+  - hosts:
+    - media.hmehra.dev
+    secretName: jellyfin-tls-cert
+---
